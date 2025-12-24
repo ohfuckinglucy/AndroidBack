@@ -21,33 +21,42 @@ def detect_handovers(points):
         prev = points[i - 1]
         curr = points[i]
 
-        prev_cell = (prev[4], prev[5], prev[6], prev[7])
-        curr_cell = (curr[4], curr[5], curr[6], curr[7])
+        prev_pci = prev[6] 
+        curr_pci = curr[6]
 
-        if prev_cell != curr_cell:
+        if prev_pci != curr_pci:
             mid_lat = (prev[0] + curr[0]) / 2
             mid_lng = (prev[1] + curr[1]) / 2
 
             handovers.append({
-                "from": {
-                    "mcc": prev[4],
-                    "mnc": prev[5],
-                    "pci": prev[6],
-                    "earfcn": prev[7],
-                },
-                "to": {
-                    "mcc": curr[4],
-                    "mnc": curr[5],
-                    "pci": curr[6],
-                    "earfcn": curr[7],
-                },
-                "position": {
-                    "latitude": mid_lat,
-                    "longitude": mid_lng
-                }
+                "from": {"pci": prev_pci},
+                "to": {"pci": curr_pci},
+                "position": {"latitude": mid_lat, "longitude": mid_lng}
             })
 
     return handovers
+
+def build_route_points(rows):
+    return [
+        {"latitude": lat, "longitude": lon, "timestamp": ts, "rsrp": rsrp}
+        for lat, lon, ts, rsrp, *_ in rows
+    ]
+
+def build_base_stations(rows):
+    base_stations = []
+    seen_pci = set()
+    for row in rows:
+        lat, lon, ts, rsrp, mcc, mnc, pci, earfcn = row
+        if pci in seen_pci:
+            continue
+        seen_pci.add(pci)
+        base_stations.append({
+            "latitude": lat,
+            "longitude": lon,
+            "pci": pci,
+            "rsrp": rsrp
+        })
+    return base_stations
 
 @app.route("/api/route", methods=["GET"])
 def route():
@@ -71,49 +80,8 @@ def route():
                 "handovers": []
             })
 
-        route_points = []
-        for row in rows:
-            lat, lon, ts, rsrp, *_ = row
-            route_points.append({
-                "latitude": lat,
-                "longitude": lon,
-                "timestamp": ts,
-                "rsrp": rsrp
-            })
-
-        cell_groups = {}
-
-        for row in rows:
-            lat, lon, ts, rsrp, mcc, mnc, pci, earfcn = row
-            key = (mcc, mnc, pci, earfcn)
-
-            if key not in cell_groups:
-                cell_groups[key] = []
-
-            cell_groups[key].append((lat, lon, rsrp))
-
-        base_stations = []
-
-        for (mcc, mnc, pci, earfcn), pts in cell_groups.items():
-            valid = [p for p in pts if p[2] is not None]
-            if not valid:
-                continue
-
-            avg_lat = sum(p[0] for p in valid) / len(valid)
-            avg_lon = sum(p[1] for p in valid) / len(valid)
-            avg_rsrp = sum(p[2] for p in valid) / len(valid)
-
-            base_stations.append({
-                "latitude": avg_lat,
-                "longitude": avg_lon,
-                "mcc": mcc,
-                "mnc": mnc,
-                "pci": pci,
-                "earfcn": earfcn,
-                "point_count": len(pts),
-                "avg_rsrp": avg_rsrp
-            })
-
+        route_points = build_route_points(rows)
+        base_stations = build_base_stations(rows)
         handovers = detect_handovers(rows)
 
         return jsonify({

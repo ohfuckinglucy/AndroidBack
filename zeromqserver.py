@@ -15,9 +15,6 @@ context = zmq.Context()
 socket = context.socket(zmq.REP)
 socket.bind("tcp://*:8080")
 
-def safe_get(obj, key, default=None):
-    return obj.get(key, default) if obj else default
-
 try:
     while True:
         data = socket.recv_string()
